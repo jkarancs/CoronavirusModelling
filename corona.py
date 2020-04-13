@@ -7,11 +7,11 @@ extra = 4
 ndayspread = 1
 
 # Auto select worst 8 countries
-# Criteria: worst fraction in 21 days, 10 mill+ pop, 1k+ current cases
+# Criteria: worst fraction in 14 days, 10 mill+ pop, 1k+ current cases
 worst  = 0
 min_pop = 1e7
 case_threshold = 1e3
-days_pred = 21
+days_pred = 14
 # Auto select best 8 countries
 # Criteria: best current rate, 1 mill+ pop, 1k+ current cases
 best   = 0
@@ -23,6 +23,7 @@ best_case_threshold = 1e3
 if best:
     # linear project dialy ratio back to n days
     ndaysback  = 7
+    ndaysback2 = 4
     # plot options
     zoom = 0
     ndayspread = 0 if zoom else 2
@@ -30,51 +31,59 @@ if best:
     yrange  = [1.01e0,1e6]
     logy2  = 0
     yrange2 = [1.01e-2,1e2] if logy2 else ([0,10] if zoom else [0,80])
+    yrange3  = [0,100]
+    yrange4  = [1e2,1e8]
     y2leg = 0.5 if zoom else 0.95
 elif worst:
     # linear project dialy ratio back to n days
     ndaysback  = 14
+    ndaysback2 = 6
     # plot options
     xrange  = [30,120]
     yrange  = [1.01e0,1e7]
     logy2   = 0
     yrange2 = [1.01e-2,1e2] if logy2 else [0,100]
+    yrange3  = [0,100]
+    yrange4  = [1e2,1e9]
     y2leg = 0.95
 else:
     # Manually select countries
     # linear project dialy ratio back to n days
     ndaysback  = 10
+    ndaysback2 = 4
     # plot options
-    xrange  = [30,120]
-    yrange  = [1.01e0,1e7]
-    yrange2 = [0,100]
+    xrange   = [30,120]
+    yrange   = [1.01e0,1e7]
+    yrange2  = [0,100]
+    yrange3  = [0,60]
+    yrange4  = [1e2,1e8]
     logy2  = 0
     y2leg = 0.95
     countries = [
         #"WRL",
         #"CHN",
         "KOR",
-        "USA",
-        #"FRA",
-        #"ESP",
+        #"USA",
+        "FRA",
+        ##"ESP",
         "ITA",
         #"AUT",
-        "SWE",
-        "FIN",
+        #"SWE",
+        #"FIN",
         "NOR",
-        ##  #"ROU",
-        ##  "SWE",
-        ##  "DEU",
-        "GBR",
+        #"DEU",
+        #"GBR",
         #"UKR",
         #"SRB",
-        #"AUT",
+        "AUT",
         #"JPN",
+        #"TUR",
+        "BEL",
         # Hungary and its neighbours
         #"HRV",
         #"SVK",
-        "AUT",
-        #"HUN",
+        #"AUT",
+        "HUN",
         #"SVN",
         #"UKR",
         #"ROU",
@@ -133,7 +142,7 @@ def set_default_style_():
     ROOT.gStyle.SetTitleAlign(33)
 
 # Methods
-def daily_increase(h, dh, ddh, dddh):
+def daily_growth(h, dh):
     count = 0
     vdiff = []
     growth = 0
@@ -148,6 +157,16 @@ def daily_increase(h, dh, ddh, dddh):
                     growth = (math.exp(fit.GetParameter(1)*86400)-1)*100
                     #growth = (h.GetBinContent(binx)-h.GetBinContent(binx-1))/max(h.GetBinContent(binx-1),1)*100
                 dh. SetBinContent(binx,growth)
+                dh. SetBinError  (binx,0)
+        else:
+            dh. SetBinContent(binx,0)
+            dh. SetBinError  (binx,0)
+    return np.mean(vdiff[-extra:]) if len(vdiff) else 0
+    
+
+def daily_growth_and_diff(h, dh, ddh, dddh):
+    mean = daily_growth(h, dh)
+    growth = 0
     for binx in range(1,h.GetNbinsX()+1):
         if dh.GetBinContent(binx)>0:
             prev_growth = dh.GetBinContent(binx-1)
@@ -169,8 +188,7 @@ def daily_increase(h, dh, ddh, dddh):
             #if "ITA" in h.GetName():
             #    print ("bin=%d  cont=%d  fit=%.1f  growth=%.1f  change=%.1f " % (binx, h.GetBinContent(binx), fit.Eval(h.GetBinCenter(binx)),
             #          
-    return np.mean(vdiff[-extra:]) if len(vdiff) else 0
-    
+    return mean
 
 def get_pred(dh, h, linear_back, c1=-9999, draw=False):
     maxbin = 0
@@ -182,11 +200,11 @@ def get_pred(dh, h, linear_back, c1=-9999, draw=False):
     if c1==-9999:
         fit = ROOT.TF1(dh.GetName()+"_fit_"+str(linear_back),"pol1",(maxbin-linear_back)*86400,(maxbin+28)*86400)
         name = h.GetName()+"_pred_"+str(linear_back)
-        dh.Fit(dh.GetName()+"_fit_"+str(linear_back),"RMQ0")
+        dh.Fit(dh.GetName()+"_fit_"+str(linear_back),"RMWQ0")
         if draw:
             fit.SetLineColor(dh.GetMarkerColor())
             fit.SetLineWidth(2)
-            fit.Draw("SAME")            
+            fit.Draw("SAME")
     else:
         fit = ROOT.TF1(dh.GetName()+"_curfew_fit_"+str(linear_back),"pol1",(maxbin-2)*86400,(maxbin+28)*86400)
         fit.FixParameter(1,c1)
@@ -219,7 +237,6 @@ def get_pred_and_error(h, dh, diff):
     if h.GetMaximum()>20:
         #for ndays in range(max(ndaysback-ndayspread*2,2),ndaysback+ndayspread*2+1):
         for ndays in range(-ndayspread,ndayspread+1):
-            #hpred,fpred = get_pred(dh,h,ndays)
             hpred,fpred = get_pred(dh,h,ndaysback+ndays*2)
             vhpred.append(hpred)
             vfpred.append(fpred)
@@ -256,16 +273,16 @@ def get_pred_and_error(h, dh, diff):
                         vup.append(vals[ifit])
                     else:
                         vdn.append(vals[ifit])
+                err_up = ((np.mean(vup) if len(vup) else 0) - mean)/mean
+                err_up = ((err_up**2 + diff**2)**0.5)*mean
+                err_dn = (mean - (np.mean(vdn) if len(vdn) else 0))/mean
+                err_dn = ((err_dn**2 + diff**2)**0.5)*mean
                 #print binx
                 #print mean
                 #print (np.mean(vup)+np.mean(vdn))/2
                 #print (np.mean(vup)-np.mean(vdn))/2
                 #h_pred_err.SetBinContent(binx, (np.mean(vup)+np.mean(vdn))/2)
                 #h_pred_err.SetBinError  (binx, (np.mean(vup)-np.mean(vdn))/2)
-                err_up = ((np.mean(vup) if len(vup) else 0) - mean)/mean
-                err_up = ((err_up**2 + diff**2)**0.5)*mean
-                err_dn = (mean - (np.mean(vdn) if len(vdn) else 0))/mean
-                err_dn = ((err_dn**2 + diff**2)**0.5)*mean
                 #print err_up
                 #print err_dn
                 #print mean + (err_up-err_dn)/2
@@ -278,12 +295,12 @@ def get_pred_and_error(h, dh, diff):
 data = {}
 data["WRL"]  = [ ROOT.TH1D("WRL_dchg", ";Date;2nd derivative of growth rate (%)", xrange[1],0,xrange[1]*86400),
                  ROOT.TH1D("WRL_chg",  ";Date;1st derivative of growth rate (%)", xrange[1],0,xrange[1]*86400),
-                 ROOT.TH1D("WRL_inc",  ";Date;Daily incrase (%)",                 xrange[1],0,xrange[1]*86400),
+                 ROOT.TH1D("WRL_gro",  ";Date;Daily incrase (%)",                 xrange[1],0,xrange[1]*86400),
                  ROOT.TH1D("WRL",      "World;Date;Total comfirmed cases",        xrange[1],0,xrange[1]*86400)]
 death = {}
 death["WRL"] = [ ROOT.TH1D("WRL_death_dchg", ";Date;2nd der. of death growth rate (%)", xrange[1],0,xrange[1]*86400),
                  ROOT.TH1D("WRL_death_chg",  ";Date;1st der. of death growth rate (%)", xrange[1],0,xrange[1]*86400),
-                 ROOT.TH1D("WRL_death_inc",  ";Date;Daily death incrase (%)",           xrange[1],0,xrange[1]*86400),
+                 ROOT.TH1D("WRL_death_gro",  ";Date;Daily death incrase (%)",           xrange[1],0,xrange[1]*86400),
                  ROOT.TH1D("WRL_death",      "World;Date;Total comfirmed death",        xrange[1],0,xrange[1]*86400) ]
 monthtoday = { 1:0, 2:31, 3:60, 4:91, 5:121, 6:152, 7:182, 8:213, 9:244, 10:274, 11:305, 12:335 }
 population = {"WRL":0}
@@ -342,12 +359,12 @@ for line in reversed(open("corona_data.csv").readlines()[1:]):
             population["WRL"] += (int(info[9]) if info[9] != "" else 0)
             dddh = ROOT.TH1D(country+"_dchg",                 ";Date;2nd drivative of growth rate (%)", xrange[1],0,xrange[1]*86400)
             ddh  = ROOT.TH1D(country+"_chg",                  ";Date;1st drivative of growth rate (%)", xrange[1],0,xrange[1]*86400)
-            dh   = ROOT.TH1D(country+"_inc",                  ";Date;Daily increase (%)",               xrange[1],0,xrange[1]*86400)
+            dh   = ROOT.TH1D(country+"_gro",                  ";Date;Daily growth (%)",                 xrange[1],0,xrange[1]*86400)
             h    = ROOT.TH1D(country,info[6].replace("_"," ")+";Date;Total comfirmed cases",            xrange[1],0,xrange[1]*86400)
             data[country] = [dddh, ddh, dh, h]
             dddd = ROOT.TH1D(country+"_death_dchg",                    ";Date;2nd der. of death growth rate (%)", xrange[1],0,xrange[1]*86400)
             ddd  = ROOT.TH1D(country+"_death_chg",                     ";Date;1st der. of death growth rate (%)", xrange[1],0,xrange[1]*86400)
-            dd   = ROOT.TH1D(country+"_death_inc",                     ";Date;Daily death incrase (%)",           xrange[1],0,xrange[1]*86400)
+            dd   = ROOT.TH1D(country+"_death_gro",                     ";Date;Daily death growth (%)",            xrange[1],0,xrange[1]*86400)
             d    = ROOT.TH1D(country+"_death",info[6].replace("_"," ")+";Date;Total comfirmed death",             xrange[1],0,xrange[1]*86400)
             death[country] = [dddd, ddd, dd, d]
             countrynames[country] = info[6].replace("_"," ")
@@ -432,11 +449,13 @@ if update:
         f.write("Hungary - tests performed,2020-04-08,http://abouthungary.hu/,Ministry of Interior,,25748,,,\n")
         f.write("Hungary - tests performed,2020-04-09,http://abouthungary.hu/,Ministry of Interior,,27826,,,\n")
         f.write("Hungary - tests performed,2020-04-10,http://abouthungary.hu/,Ministry of Interior,,29948,,,\n")
+        f.write("Hungary - tests performed,2020-04-11,http://abouthungary.hu/,Ministry of Interior,,31961,,,\n")
+        f.write("Hungary - tests performed,2020-04-12,http://abouthungary.hu/,Ministry of Interior,,33532,,,\n")
 print "Start reading world testing data (github)"
 testcountries = []
 testdata = {}
-testdata["WRL"]  = [ ROOT.TH1D("WRL_test_inc",  ";Date;Daily increase in tests (%)", xrange[1],0,xrange[1]*86400),
-                     ROOT.TH1D("WRL_test", "World;Date;Total tests done",            xrange[1],0,xrange[1]*86400)]
+testdata["WRL"]  = [ ROOT.TH1D("WRL_test_gro",  ";Date;Daily growth in tests (%)", xrange[1],0,xrange[1]*86400),
+                     ROOT.TH1D("WRL_test", "World;Date;Total tests done",          xrange[1],0,xrange[1]*86400)]
 lasttestday = {}
 lasttestcount = {}
 lasttestcountry = ""
@@ -458,9 +477,9 @@ with open('covid-testing-all-observations.csv') as csvfile:
                 #if lasttestcountry != '': print countrynames[lasttestcountry]+" "+str(lasttestcount[lasttestcountry])
                 if country not in testcountries:
                     testcountries.append(country)
-                    dt   = ROOT.TH1D(country+"_test_inc",        ";Date;Daily increase in tests (%)", xrange[1],0,xrange[1]*86400)
-                    t    = ROOT.TH1D(country+"_test",countryname+";Date;Total tests done",            xrange[1],0,xrange[1]*86400)
-                    testdata[country] = [dt, t]
+                    dtest   = ROOT.TH1D(country+"_test_gro",        ";Date;Daily growth in tests (%)", xrange[1],0,xrange[1]*86400)
+                    test    = ROOT.TH1D(country+"_test",countryname+";Date;Total tests done",          xrange[1],0,xrange[1]*86400)
+                    testdata[country] = [dtest, test]
                 if country not in testtotal:
                     testtotal[country] = 0
                     lasttestday[country] = 0
@@ -469,8 +488,8 @@ with open('covid-testing-all-observations.csv') as csvfile:
             testcount = testtotal[country]
             day = monthtoday[int(info[1].split("-")[1])]+int(info[1].split("-")[2])
             for currday in range(lasttestday[country]+1,day):
-                t.SetBinContent(currday, lasttestcount[country])
-            t.SetBinContent(day, testcount)
+                test.SetBinContent(currday, lasttestcount[country])
+            test.SetBinContent(day, testcount)
             t2 = data["WRL"][1]
             t2.Fill((day-1)*86400, testcount)
             t2.SetBinError(day,0)
@@ -495,15 +514,114 @@ def get_date(day):
             month = months[key]
     return month+" "+("%02d" % maxdiff)
 
-# Get information about worst pandemic cases
+def get_pred_from_death(h, d, htest):
+    nday_back = 12
+    mortality = 0.01
+    #mortality = 0.007
+    ht = h.Clone(h.GetName()+"_true")
+    dt = ht.Clone(ht.GetName()+"_gro")
+    hr = h.Clone(h.GetName()+"_ratio")
+    for binx in range(1,d.GetNbinsX()+1):
+        death = d.GetBinContent(binx)
+        if death>0:
+            ht.SetBinContent(binx-nday_back, death/mortality)
+        else:
+            ht.SetBinContent(binx-nday_back, 0)
+    n = 0
+    for binx in range(1,h.GetNbinsX()+1):
+        case  = h.GetBinContent(binx)
+        true  = ht.GetBinContent(binx)
+        test  = 0 if "nodata" in htest.GetName() else htest.GetBinContent(binx)
+        death = d.GetBinContent(binx)
+        if case>0 and true>0:
+            hr.SetBinContent(binx,case/true*100)
+            if test>0 and death>0:
+                n += 1
+    gt = ROOT.TGraph(n)
+    n = 0
+    for binx in range(1,h.GetNbinsX()+1):
+        case  = h.GetBinContent(binx)
+        true  = ht.GetBinContent(binx)
+        test  = 0 if "nodata" in htest.GetName() else htest.GetBinContent(binx)
+        death = d.GetBinContent(binx)
+        if case>0 and true>0 and test>0 and death>0:
+            gt.SetPoint(n, test/death, case/true*100)
+        n += 1
+    # perform linear fit to observed true ratio
+    #rt = ht.Clone(ht.GetName()+"_rt")
+    t_pred_nom = h.Clone(h.GetName()+"_pred_nom")
+    t_pred_err = h.Clone(h.GetName()+"_err")
+    vtpred = []  # histo for each vairable range fit
+    vftpred = [] # fit for each range
+    if ht.GetMaximum()>20:
+        daily_growth(ht, dt)
+        for ndays in range(-ndayspread,ndayspread+1):
+            tpred,fpred = get_pred(dt,ht,ndaysback2+ndays*1)
+            vtpred.append(tpred)
+            vftpred.append(fpred)
+        for binx in range(1,tpred.GetNbinsX()+1):
+            if vtpred[0].GetBinContent(binx)==0:
+                t_pred_nom.SetBinContent(binx,0)
+                t_pred_nom.SetBinError  (binx,0)
+                t_pred_err.SetBinContent(binx,0)
+                t_pred_err.SetBinError  (binx,0)
+            else:
+                # error calculation
+                # calculate mean
+                logs = []
+                vals = []
+                for ifit in range(len(vtpred)):
+                    logs.append(math.log(vtpred[ifit].GetBinContent(binx)))
+                    vals.append(vtpred[ifit].GetBinContent(binx))
+                #print binx
+                #print logs
+                #print vals
+                #mean = math.exp(np.mean(logs))
+                mean = np.mean(vals)
+                #print "mean1="+str(mean)
+                #print "mean2="+str(mean2)
+                #print "stdev="+str(np.std(logs))
+                #print "stdv2="+str(np.std(vals))
+                t_pred_nom.SetBinContent(binx, mean)
+                #t_pred_nom.SetBinError  (binx, np.std(vals))
+                t_pred_nom.SetBinError  (binx,0)
+                # calculate error up/down separately
+                vup = []
+                vdn = []
+                for ifit in range(len(vals)):
+                    if vals[ifit]>mean:
+                        vup.append(vals[ifit])
+                    else:
+                        vdn.append(vals[ifit])
+                #print binx
+                #print mean
+                #print (np.mean(vup)+np.mean(vdn))/2
+                #print (np.mean(vup)-np.mean(vdn))/2
+                #t_pred_err.SetBinContent(binx, (np.mean(vup)+np.mean(vdn))/2)
+                #t_pred_err.SetBinError  (binx, (np.mean(vup)-np.mean(vdn))/2)
+                err_up = ((np.mean(vup) if len(vup) else 0) - mean)/mean
+                err_up = ((err_up**2 + diff**2)**0.5)*mean
+                err_dn = (mean - (np.mean(vdn) if len(vdn) else 0))/mean
+                err_dn = ((err_dn**2 + diff**2)**0.5)*mean
+                #print err_up
+                #print err_dn
+                #print mean + (err_up-err_dn)/2
+                #print (err_up-err_dn)/2
+                t_pred_err.SetBinContent(binx, mean + (err_up-err_dn)/2)
+                t_pred_err.SetBinError  (binx, (err_up+err_dn)/2)
+    return [ht, dt, hr, gt, t_pred_nom, t_pred_err, vftpred]
+
+
+# Do all the calculations and predictions and save results to vectors
 fractions = {}
+preddata = {}
 for country in allcountries+["WRL"]:
     # comfirmed cases
     dddh       = data[country][0]
     ddh        = data[country][1]
     dh         = data[country][2]
     h          = data[country][3]
-    diff = daily_increase(h, dh, ddh, dddh)
+    diff = daily_growth_and_diff(h, dh, ddh, dddh)
     h_pred_nom, h_pred_err, vf = get_pred_and_error(h, dh, diff)
     data[country] += [h_pred_nom, h_pred_err, vf]
     # deaths
@@ -511,37 +629,41 @@ for country in allcountries+["WRL"]:
     ddd        = death[country][1]
     dd         = death[country][2]
     d          = death[country][3]
-    diff2 = daily_increase(d, dd, ddd, dddd)
+    diff2 = daily_growth_and_diff(d, dd, ddd, dddd)
     d_pred_nom, d_pred_err, vdf = get_pred_and_error(d, dd, diff2)
     death[country] += [d_pred_nom, d_pred_err, vdf]
+    # tests data
+    if country in testdata:
+        test = testdata[country][1]
+    else:
+        test = ROOT.TH1D(country+"_nodata","",1,0,1)
+    # predictions from death
+    preddata[country] = [test] + get_pred_from_death(h, d, test)
     # growth rates
     curr_case = h.GetBinContent(valid_day)
     curr_rate = dh.GetBinContent(valid_day)
-    if country == "WRL":
-        print "dh, dd"
-        print dh.GetBinContent(valid_day)
-        print dd.GetBinContent(valid_day)
-    fraction = h_pred_nom.GetBinContent(valid_day+days_pred)/population[country] if population[country]>1e5 else 0
-    if population[country]>min_pop and curr_case>case_threshold:
+    t_pred_nom = preddata[country][5]
+    fraction = t_pred_nom.GetBinContent(valid_day+days_pred)/population[country] if population[country]>1e5 else 0
+    if population[country]>min_pop and curr_case>case_threshold and country != "WRL":
         fractions[country] = fraction
 
-
-
-# Auto select 8 worst countries based on worst projections to 21 days
+# Auto select 8 worst countries based on worst projections to 14 days
 if worst:
-    print "Plot 8 worst pandemic threats in 21 days"
+    print "Plot 8 worst pandemic threats in 14 days"
     countries = []
-print "Countries with highest expected infected fraction in "+str(days_pred)+" days:"
+print "Countries with highest expected true infected fraction in "+str(days_pred)+" days:"
 for ctry in reversed(sorted(fractions.items(), key=operator.itemgetter(1))[-14:]):
-    dddh, ddh, dh, h, h_pred_nom, h_pred_err, vf = data[ctry[0]]
-    fraction = h_pred_nom.GetBinContent(valid_day+days_pred)/population[ctry[0]]
-    print ("%-30s - Fraction infected: %.4f" % (h.GetTitle()+" ("+ctry[0]+")", fraction))
+    #dddh, ddh, dh, h, h_pred_nom, h_pred_err, vf = data[ctry[0]]
+    t_pred_nom = preddata[ctry[0]][5]
+    t_pred_err = preddata[ctry[0]][6]
+    fraction = t_pred_nom.GetBinContent(valid_day+days_pred)/population[ctry[0]]
+    print ("%-30s - Fraction infected: %.3f%%" % (data[ctry[0]][3].GetTitle()+" ("+ctry[0]+")", fraction*100))
     for day in [7,14,21,28]:
-        fraction = h_pred_nom.GetBinContent(valid_day+day)/population[ctry[0]]
-        print ("%s: %d  +%d  -%d, fraction: %.5f" % (get_date(valid_day+day), h_pred_nom.GetBinContent(valid_day+day),
-                                                     h_pred_err.GetBinContent(valid_day+day)+h_pred_err.GetBinError(valid_day+day)-h_pred_nom.GetBinContent(valid_day+day),
-                                                     h_pred_nom.GetBinContent(valid_day+day)-h_pred_err.GetBinContent(valid_day+day)+h_pred_err.GetBinError(valid_day+day),
-                                                     fraction))
+        fraction = t_pred_nom.GetBinContent(valid_day+day)/population[ctry[0]]
+        print ("%s: %d  +%d  -%d, fraction: %.3f%%" % (get_date(valid_day+day), t_pred_nom.GetBinContent(valid_day+day),
+                                                     t_pred_err.GetBinContent(valid_day+day)+t_pred_err.GetBinError(valid_day+day)-t_pred_nom.GetBinContent(valid_day+day),
+                                                     t_pred_nom.GetBinContent(valid_day+day)-t_pred_err.GetBinContent(valid_day+day)+t_pred_err.GetBinError(valid_day+day),
+                                                     fraction*100))
     if worst and len(countries)<8: countries.append(ctry[0])
 print
 
@@ -565,7 +687,7 @@ for ctry in sorted(daily_rates.items(), key=operator.itemgetter(1))[:14]:
     dddh, ddh, dh, h, h_pred_nom, h_pred_err, vf = data[ctry[0]]
     daily_rate = ctry[1]
     fraction = h.GetBinContent(valid_day)/population[ctry[0]]
-    print ("%-30s - Current rate: %.4f  Fraction infected: %.6f" % (h.GetTitle()+" ("+ctry[0]+")", daily_rate, fraction))
+    print ("%-30s - Current rate: %.4f  Fraction infected: %.3f%%" % (h.GetTitle()+" ("+ctry[0]+")", daily_rate, fraction*100))
     if best and len(countries)<8: countries.append(ctry[0])
 print
 
@@ -584,6 +706,13 @@ vd    = []
 vd_pred = []
 vd_err  = []
 vvdf = []
+vht = []
+vdt = []
+vhr = []
+vgt = []
+vt_pred_nom = []
+vt_pred_err = []
+vvftpred = []
 vtest = []
 for i in range(len(countries)):
     dddh, ddh, dh, h, h_pred_nom, h_pred_err, vf = data[countries[i]]
@@ -602,10 +731,15 @@ for i in range(len(countries)):
     vd_pred.append(d_pred_nom)
     vd_err .append(d_pred_err)
     vvdf.append(vdf)
-    if countries[i] in testdata:
-        vtest.append(testdata[countries[i]][1])
-    else:
-        vtest.append(ROOT.TH1D(countries[i]+"_nodata","",1,0,1))
+    test, ht, dt, hr, gt, t_pred_nom, t_pred_err, vftpred = preddata[countries[i]]
+    vtest.append(test)
+    vht.append(ht)
+    vdt.append(dt)
+    vhr.append(hr)
+    vgt.append(gt)
+    vt_pred_nom.append(t_pred_nom)
+    vt_pred_err.append(t_pred_err)
+    vvftpred.append(vftpred)
 
 # If data is unreliable, you can validate latest comfirmed case numbers with this printout
 print "Count validations for date="+get_date(valid_day)+" (day="+str(valid_day)+"):"
@@ -642,18 +776,6 @@ if trends:
                     if nextcont>cont:
                         print ("  + %s: Slowdown - %.1f" % (get_date(binx), cont))
                         slowdown = False
-
-# Predictions
-print "Predictions comfirmed cases up to 28 days from now:"
-daystopred = range(1,8) if not worst else [7]
-for day in [14,21,28]:
-    if xrange[1]>valid_day+day:
-        daystopred.append(day)
-for i in range(len(countries)):
-    for day in daystopred:
-        print ("%s - %s: %d  +%d  -%d" % (countries[i], get_date(valid_day+day), int(vh_pred[i].GetBinContent(valid_day+day)),
-                                          int(vh_err[i].GetBinContent(valid_day+day)+vh_err[i].GetBinError(valid_day+day)-vh_pred[i].GetBinContent(valid_day+day)),
-                                          int(vh_pred[i].GetBinContent(valid_day+day)-vh_err[i].GetBinContent(valid_day+day)+vh_err[i].GetBinError(valid_day+day))))
 
 # Plotting of results starts here
 print "Start plotting"
@@ -736,8 +858,6 @@ for i in range(len(countries)):
     vdh[i].SetMarkerSize (settings[i][3]*0.8)
     vdh[i].SetLineColor(settings[i][2])
     vdh[i].Draw("PL" if i==0 else "SAME PL")
-    h_pred_nom = vh_pred[i]
-    h_pred_err = vh_err[i]
     leg3.AddEntry(vdh[i], vh[i].GetTitle(), "P")
     for fit in vvf[i]:
         fit.SetLineColor(settings[i][2])
@@ -786,110 +906,70 @@ for i in range(len(countries)):
 leg4.Draw()
 can.SaveAs(countries[0]+".png")
 
-
-def pred_from_death(h, d, t):
-    nday_back = 12
-    mortality = 0.01
-    ht = h.Clone(h.GetName()+"_true")
-    hr = h.Clone(h.GetName()+"_ratio")
-    for binx in range(1,d.GetNbinsX()+1):
-        death = d.GetBinContent(binx)
-        if death>0:
-            ht.SetBinContent(binx-nday_back, death/mortality)
-        else:
-            ht.SetBinContent(binx-nday_back, 0)
-    n = 0
-    for binx in range(1,h.GetNbinsX()+1):
-        case  = h.GetBinContent(binx)
-        true  = ht.GetBinContent(binx)
-        test  = 0 if "nodata" in t.GetName() else t.GetBinContent(binx)
-        death = d.GetBinContent(binx)
-        if case>0 and true>0:
-            hr.SetBinContent(binx,case/true*100)
-            if test>0 and death>0:
-                n += 1
-    gt = ROOT.TGraph(n)
-    n = 0
-    for binx in range(1,h.GetNbinsX()+1):
-        case  = h.GetBinContent(binx)
-        true  = ht.GetBinContent(binx)
-        test  = 0 if "nodata" in t.GetName() else t.GetBinContent(binx)
-        death = d.GetBinContent(binx)
-        if case>0 and true>0 and test>0 and death>0:
-            gt.SetPoint(n, test/death, case/true*100)
-        n += 1
-    return [ht, hr, gt]
-
 # death to case projections
 print "Start death to case plotting"
-can = ROOT.TCanvas(countries[0]+"_proj", "", 1800,600)
-can.Divide(3)
+can = ROOT.TCanvas(countries[0]+"_proj", "", 1200,600)
+can.Divide(2)
+#can.Divide(3)
+#pad = can.cd(1)
+#pad.SetTopMargin  (0.04)
+#pad.SetLeftMargin (0.13)
+#pad.SetRightMargin(0.04)
+#pad.SetGrid(1,1)
+#pad.SetLogy(1)
+#vh[0].GetXaxis().SetTitleSize(0.05)
+#vh[0].GetYaxis().SetTitleSize(0.05)
+#vh[0].GetXaxis().SetTimeDisplay(1)
+#vh[0].GetXaxis().SetNdivisions(504)
+#vh[0].GetXaxis().SetTimeFormat("%b %d %F2020-01-01 00:00:00")
+#vh[0].GetXaxis().SetRangeUser(xrange[0]*86400,xrange[1]*86400)
+#vh[0].GetYaxis().SetRangeUser(yrange[0],yrange[1])
+#vh[0].GetYaxis().SetTitle("Est. true and documented cases")
+#leg5 = ROOT.TLegend(0.15,y2leg-len(vh)*0.04,0.35,y2leg)
+#leg5.SetFillColor(0)
+#leg5.SetFillStyle(0)
+#leg5.SetBorderSize(0)
+#leg5.SetTextSize(0.04)
+#for i in range(len(countries)):
+#    vh[i].SetMarkerStyle(settings[i][0])
+#    vh[i].SetMarkerColor(settings[i][2])
+#    vh[i].SetMarkerSize (settings[i][3]*0.8)
+#    vh[i].SetLineColor(settings[i][2])
+#    vh[i].Draw("P" if i==0 else "SAME P")
+#    vht[i].SetLineColor(settings[i][2])
+#    vht[i].SetLineWidth(2)
+#    vht[i].Draw("SAME HIST")
+#    leg5.AddEntry(vh[i], vh[i].GetTitle(), "P")
+#leg5.Draw()
+
 pad = can.cd(1)
 pad.SetTopMargin  (0.04)
 pad.SetLeftMargin (0.13)
 pad.SetRightMargin(0.04)
 pad.SetGrid(1,1)
-pad.SetLogy(1)
-vh[0].GetXaxis().SetTitleSize(0.05)
-vh[0].GetYaxis().SetTitleSize(0.05)
-vh[0].GetXaxis().SetTimeDisplay(1)
-vh[0].GetXaxis().SetNdivisions(504)
-vh[0].GetXaxis().SetTimeFormat("%b %d %F2020-01-01 00:00:00")
-vh[0].GetXaxis().SetRangeUser(xrange[0]*86400,xrange[1]*86400)
-vh[0].GetYaxis().SetRangeUser(yrange[0],yrange[1])
-vh[0].GetYaxis().SetTitle("Est. true and documented cases")
-leg5 = ROOT.TLegend(0.15,y2leg-len(vh)*0.04,0.35,y2leg)
-leg5.SetFillColor(0)
-leg5.SetFillStyle(0)
-leg5.SetBorderSize(0)
-leg5.SetTextSize(0.04)
-vr = []
-vt = []
-vg = []
-for i in range(len(countries)):
-    vh[i].SetMarkerStyle(settings[i][0])
-    vh[i].SetMarkerColor(settings[i][2])
-    vh[i].SetMarkerSize (settings[i][3]*0.8)
-    vh[i].SetLineColor(settings[i][2])
-    vh[i].Draw("P" if i==0 else "SAME P")
-    ht, hr, gt = pred_from_death(vh[i], vd[i], vtest[i])
-    vr.append(hr)
-    vt.append(ht)
-    vg.append(gt)
-    ht.SetLineColor(settings[i][2])
-    ht.SetLineWidth(2)
-    ht.Draw("SAME HIST")
-    leg5.AddEntry(vh[i], vh[i].GetTitle(), "P")
-leg5.Draw()
-
-pad = can.cd(2)
-pad.SetTopMargin  (0.04)
-pad.SetLeftMargin (0.13)
-pad.SetRightMargin(0.04)
-pad.SetGrid(1,1)
-vr[0].GetXaxis().SetTitleSize(0.05)
-vr[0].GetYaxis().SetTitleSize(0.05)
-vr[0].GetXaxis().SetTimeDisplay(1)
-vr[0].GetXaxis().SetNdivisions(504)
-vr[0].GetXaxis().SetTimeFormat("%b %d %F2020-01-01 00:00:00")
-vr[0].GetXaxis().SetRangeUser(xrange[0]*86400,xrange[1]*86400)
-vr[0].GetYaxis().SetRangeUser(0,100)
-vr[0].GetYaxis().SetTitle("Est. documented cases (%)")
+vhr[0].GetXaxis().SetTitleSize(0.05)
+vhr[0].GetYaxis().SetTitleSize(0.05)
+vhr[0].GetXaxis().SetTimeDisplay(1)
+vhr[0].GetXaxis().SetNdivisions(504)
+vhr[0].GetXaxis().SetTimeFormat("%b %d %F2020-01-01 00:00:00")
+vhr[0].GetXaxis().SetRangeUser(xrange[0]*86400,xrange[1]*86400)
+vhr[0].GetYaxis().SetRangeUser(0,100)
+vhr[0].GetYaxis().SetTitle("Est. documented cases (%)")
 leg6 = ROOT.TLegend(0.15,y2leg-len(vh)*0.04,0.35,y2leg)
 leg6.SetFillColor(0)
 leg6.SetFillStyle(0)
 leg6.SetBorderSize(0)
 leg6.SetTextSize(0.04)
 for i in range(len(countries)):
-    vr[i].SetMarkerStyle(settings[i][0])
-    vr[i].SetMarkerColor(settings[i][2])
-    vr[i].SetMarkerSize (settings[i][3]*0.8)
-    #vr[i].SetLineColor(settings[i][2])
-    vr[i].Draw("PL" if i==0 else "SAME PL")
-    leg6.AddEntry(vr[i], vh[i].GetTitle(), "PL")
+    vhr[i].SetMarkerStyle(settings[i][0])
+    vhr[i].SetMarkerColor(settings[i][2])
+    vhr[i].SetMarkerSize (settings[i][3]*0.8)
+    #vhr[i].SetLineColor(settings[i][2])
+    vhr[i].Draw("PL" if i==0 else "SAME PL")
+    leg6.AddEntry(vhr[i], vh[i].GetTitle(), "PL")
 leg6.Draw()
 
-pad = can.cd(3)
+pad = can.cd(2)
 pad.SetTopMargin  (0.04)
 pad.SetLeftMargin (0.13)
 pad.SetRightMargin(0.04)
@@ -900,8 +980,8 @@ dummy.GetXaxis().SetTitleSize(0.05)
 dummy.GetYaxis().SetTitleSize(0.05)
 dummy.GetXaxis().SetRangeUser(10,100000)
 dummy.GetYaxis().SetRangeUser(0,100)
-vg[0].GetXaxis().SetTitle("Tests per death")
-vg[0].GetYaxis().SetTitle("Est. documented cases (%)")
+vgt[0].GetXaxis().SetTitle("Tests per death")
+vgt[0].GetYaxis().SetTitle("Est. documented cases (%)")
 dummy.Draw()
 leg7 = ROOT.TLegend(0.15,y2leg-len(vh)*0.04,0.35,y2leg)
 leg7.SetFillColor(0)
@@ -910,15 +990,209 @@ leg7.SetBorderSize(0)
 leg7.SetTextSize(0.04)
 first = 1
 for i in range(len(countries)):
-    if vg[i].GetN()>0:
-        vg[i].SetMarkerStyle(settings[i][0])
-        vg[i].SetMarkerColor(settings[i][2])
-        vg[i].SetMarkerSize (settings[i][3])
-        #vg[i].SetLineColor(settings[i][2])
-        vg[i].Draw("SAME P" if first else "SAME P")
-        leg7.AddEntry(vg[i], vh[i].GetTitle(), "P")
+    if vgt[i].GetN()>0:
+        vgt[i].SetMarkerStyle(settings[i][0])
+        vgt[i].SetMarkerColor(settings[i][2])
+        vgt[i].SetMarkerSize (settings[i][3])
+        #vgt[i].SetLineColor(settings[i][2])
+        vgt[i].Draw("SAME P" if first else "SAME P")
+        leg7.AddEntry(vgt[i], vh[i].GetTitle(), "P")
         first = 0
 leg7.Draw()
 can.SaveAs(countries[0]+"_documented_rate.png")
 
+# true infected estimate end prediction
+can = ROOT.TCanvas(countries[0]+"_true", "", 1200,600)
+can.Divide(2)
+pad = can.cd(1)
+pad.SetTopMargin  (0.04)
+pad.SetLeftMargin (0.13)
+pad.SetRightMargin(0.04)
+pad.SetGrid(1,1)
+pad.SetLogy(logy2)
+vdt[0].GetXaxis().SetTitleSize(0.05)
+vdt[0].GetYaxis().SetTitleSize(0.05)
+vdt[0].GetXaxis().SetTimeDisplay(1)
+vdt[0].GetXaxis().SetNdivisions(504)
+vdt[0].GetXaxis().SetTimeFormat("%b %d %F2020-01-01 00:00:00")
+vdt[0].GetXaxis().SetRangeUser(xrange[0]*86400,xrange[1]*86400)
+vdt[0].GetYaxis().SetRangeUser(yrange3[0],yrange3[1])
+vdt[0].GetYaxis().SetTitle("Daily growth of estimated true cases (%)")
+leg8 = ROOT.TLegend(0.15,y2leg-len(vh)*0.04,0.35,y2leg)
+leg8.SetFillColor(0)
+leg8.SetFillStyle(0)
+leg8.SetBorderSize(0)
+leg8.SetTextSize(0.04)
+for i in range(len(countries)):
+    for binx in range(1,vdt[i].GetNbinsX()+1): vdt[i].SetBinError(binx,0)
+    vdt[i].SetMarkerStyle(settings[i][0])
+    vdt[i].SetMarkerColor(settings[i][2])
+    vdt[i].SetMarkerSize (settings[i][3]*0.8)
+    vdt[i].SetLineColor(settings[i][2])
+    vdt[i].Draw("PL" if i==0 else "SAME PL")
+    leg8.AddEntry(vdt[i], vh[i].GetTitle(), "P")
+    for fit in vvftpred[i]:
+        fit.SetLineColor(settings[i][2])
+        fit.SetLineStyle(7)
+        fit.SetLineWidth(1)
+        fit.Draw("SAME")
+leg8.Draw()
 
+vht[0].GetXaxis().SetTimeDisplay(1)
+vht[0].GetXaxis().SetNdivisions(504)
+vht[0].GetXaxis().SetTimeFormat("%b %d %F2020-01-01 00:00:00")
+vht[0].GetXaxis().SetRangeUser(xrange[0]*86400,xrange[1]*86400)
+vht[0].GetYaxis().SetRangeUser(yrange4[0],yrange4[1])
+vht[0].GetYaxis().SetTitle("Estimated total true cases")
+leg9 = ROOT.TLegend(0.15,y2leg-len(vh)*0.04,0.35,y2leg)
+leg9.SetFillColor(0)
+leg9.SetFillStyle(0)
+leg9.SetBorderSize(0)
+leg9.SetTextSize(0.04)
+for i in range(len(countries)):
+    leg9.AddEntry(vh[i], vh[i].GetTitle(), "P")
+    if i==0:
+        pad = can.cd(2)
+        pad.SetTopMargin  (0.04)
+        pad.SetLeftMargin (0.13)
+        pad.SetRightMargin(0.04)
+        pad.SetLogy(1)
+        pad.SetGrid(1,1)
+    vht[i].GetXaxis().SetTitleSize(0.05)
+    vht[i].GetYaxis().SetTitleSize(0.05)
+    vht[i].SetMarkerStyle(settings[i][0])
+    vht[i].SetMarkerColor(settings[i][2])
+    vht[i].SetMarkerSize (settings[i][3])
+    vht[i].SetLineColor  (settings[i][2])
+    vht[i].Draw("P" if i==0 else "SAME P")
+    vt_pred_err[i].SetMarkerStyle(1)
+    vt_pred_err[i].SetMarkerColor(0)
+    vt_pred_err[i].SetMarkerSize(0)
+    vt_pred_err[i].SetFillStyle(settings[i][4])
+    vt_pred_err[i].SetFillColor(settings[i][2])
+    vt_pred_err[i].Draw("SAME E4")
+    vt_pred_nom[i].SetMarkerStyle(settings[i][1])
+    vt_pred_nom[i].SetMarkerColor(settings[i][2])
+    vt_pred_nom[i].SetMarkerSize (settings[i][3])
+    vt_pred_nom[i].SetLineColor  (settings[i][2])
+    vt_pred_nom[i].Draw("SAME P")
+leg9.Draw()
+can.SaveAs(countries[0]+"_true.png")
+
+
+# Predictions
+print "Predictions of comfirmed cases up to 28 days from now:"
+daystopred = range(1,8) if not worst else [7]
+for day in [14,21,28]:
+    if xrange[1]>valid_day+day:
+        daystopred.append(day)
+
+for i in range(len(countries)):
+    for day in daystopred:
+        print ("%s - %s: %d  +%d  -%d" % (countries[i], get_date(valid_day+day), int(vh_pred[i].GetBinContent(valid_day+day)),
+                                                   int(vh_err[i].GetBinContent(valid_day+day)+vh_err[i].GetBinError(valid_day+day)-vh_pred[i].GetBinContent(valid_day+day)),
+                                                   int(vh_pred[i].GetBinContent(valid_day+day)-vh_err[i].GetBinContent(valid_day+day)+vh_err[i].GetBinError(valid_day+day))))
+
+print "Estimate of documented fraction 12 days ago:"
+for i in range(len(countries)):
+    print ("%s - %s: %.1f%%" % (countries[i], get_date(valid_day-12), int(vhr[i].GetBinContent(valid_day-12))))
+
+
+# SEIR model
+# alpha - incubation period
+# beta  - infection probability
+# gamma - removal probability
+
+
+can = ROOT.TCanvas("ALL_doc", "", 600,600)
+can.SetTopMargin  (0.04)
+can.SetLeftMargin (0.13)
+can.SetRightMargin(0.04)
+can.SetGrid(1,1)
+can.SetLogx(1)
+dummy2 = ROOT.TH1D("dummy2",";Tests per death;Est. documented cases (%)",10000-1,10,100000)
+dummy2.GetXaxis().SetTitleSize(0.05)
+dummy2.GetYaxis().SetTitleSize(0.05)
+dummy2.GetXaxis().SetRangeUser(10,100000)
+dummy2.GetYaxis().SetRangeUser(0,100)
+dummy.Draw()
+ncountry = 0
+allxmax = []
+allymax = []
+allxlast = []
+allylast = []
+keep = []
+for country in testdata.keys():
+    if country in preddata:
+        ncountry += 1
+        gt = preddata[country][4]
+        x = ROOT.Double(0)
+        y = ROOT.Double(0)
+        xmax = 0
+        ymax = 0
+        n = 0
+        for i in range(gt.GetN()):
+            gt.GetPoint(i, x, y)
+            print str(i)+" "+str(x)+" "+str(y)
+            if x>10:
+                n += 1
+                if y>ymax:
+                    xmax = float(x)
+                    ymax = float(y)
+                    print "--> "+str(ymax)
+        allxmax.append(xmax)
+        allymax.append(ymax)
+        allxlast.append(x)
+        allylast.append(y)
+        gt_max   = ROOT.TGraph(1)
+        gt_max.SetPoint(0, xmax, ymax)
+        print country
+        print ymax
+        print y
+        print
+        gt_last  = ROOT.TGraph(1)
+        gt_last.SetPoint(0, x, y)
+        gt_clean = ROOT.TGraph(n)
+        n = 0
+        for i in range(gt.GetN()):
+            gt.GetPoint(i, x, y)
+            if x>10:
+                gt_clean.SetPoint(n, x, y)
+                n += 1
+        gt_clean.SetMarkerSize(0.1)
+        gt_clean.SetMarkerStyle(20)
+        gt_clean.SetMarkerColor(ncountry+1)
+        gt_clean.SetLineColor(ncountry+1)
+        gt_clean.Draw("SAME L")
+        gt_last.SetMarkerStyle(20)
+        gt_last.SetMarkerColor(ncountry+1)
+        gt_last.SetMarkerSize(1.2)
+        gt_last.Draw("SAME P")
+        #gt_max.SetMarkerStyle(20)
+        #gt_max.SetMarkerColor(ncountry+1)
+        #gt_max.SetMarkerSize(1.0)
+        #gt_max.Draw("SAME P")
+        keep.append(gt_max)
+        keep.append(gt_last)
+        keep.append(gt_clean)
+gt_all_max = ROOT.TGraph(len(allxmax))
+for i in range(len(allxmax)):
+    gt_all_max.SetPoint(i, allxmax[i], allymax[i])
+gt_all_max.SetMarkerStyle(20)
+gt_all_max.SetMarkerColor(1)
+gt_all_max.SetMarkerSize(0.6)
+gt_all_max.Draw("SAME P")
+fitmax = ROOT.TF1("allmax","pol2",10,15000)
+fitmax.SetLineColor(1)
+gt_all_max.Fit("allmax","RMW")
+
+gt_all_last = ROOT.TGraph(len(allxlast))
+for i in range(len(allxlast)):
+    gt_all_last.SetPoint(i, allxlast[i], allylast[i])
+gt_all_last.SetMarkerStyle(20)
+gt_all_last.SetMarkerColor(1)
+gt_all_last.SetMarkerSize(0.6)
+gt_all_last.Draw("SAME P")
+fitlast = ROOT.TF1("alllast","pol2",10,20000)
+gt_all_last.Fit("alllast","RMW")
+can.SaveAs("ALL_documented_rate.png")
